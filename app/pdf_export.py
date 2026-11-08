@@ -15,7 +15,7 @@ Użycie (z GUI):
 Samodzielnie:
   python pdf_export.py --folder FOLDER --out _RAPORT_OCR.pdf
 """
-import json, re, unicodedata
+import json, os, re, unicodedata
 from pathlib import Path
 from ocr_history import sha256, variants_for
 from gui_line_corrections import saved_corrections
@@ -54,3 +54,101 @@ def load_page(image, variant_id=None):
     if document is None:
         raise ValueError(f'Nie znaleziono wariantu OCR dla {image.name}. Odśwież raport.')
     return dict(document, image=str(image), pdf_lines=page_lines(document, saved_corrections(image, digest, wanted)))
+
+
+FONT = Path(__file__).resolve().parent / 'fonts' / 'DejaVuSans.ttf'
+UMASK = os.umask(0); os.umask(UMASK)                       # raz przy imporcie: umask jest globalny dla wątków
+
+
+def _dpi(source):
+    dpi = source.info.get('dpi', (0, 0))[0]
+    return float(dpi) if dpi and dpi >= 50 else 300.0
+
+
+def _draw_page(canvas, page):
+    from PIL import Image
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    import io
+    rotation = int(page.get('rot', 0)) % 360
+    if rotation not in (0, 90, 180, 270):
+        raise ValueError('Nieobsługiwany obrót skanu.')
+    name = Path(page['image']).name
+    with Image.open(page['image']) as source:
+        scale = 72.0 / _dpi(source)
+        if rotation == 0 and source.format == 'JPEG' and source.mode in ('RGB', 'L'):
+            picture, size = page['image'], source.size      # oryginalny JPEG bez ponownej kompresji
+        else:
+            rotated = source.convert('RGB').rotate(-rotation, expand=True) if rotation else source.convert('RGB')
+            buffer = io.BytesIO(); rotated.save(buffer, 'JPEG', quality=90); buffer.seek(0)
+            picture, size = ImageReader(buffer), rotated.size
+    if list(size) != [page.get('width'), page.get('height')]:
+        raise ValueError(f'Wymiary skanu {name} nie zgadzają się z OCR.')
+    width, height = size[0] * scale, size[1] * scale
+    canvas.setPageSize((width, height))
+    canvas.drawImage(picture, 0, 0, width, height)
+    for line in page['pdf_lines']:
+        x0, y0, x1, y1 = line['bbox']
+        points = line.get('baseline') or []
+        base = sum(p[1] for p in points) / len(points) if points else y1 - 0.2 * (y1 - y0)
+        size_pt = max(0.75 * (y1 - y0) * scale, 1.0)
+        natural = stringWidth(line['text'], 'DejaVuSans', size_pt)
+        if natural <= 0 or x1 <= x0:
+            continue
+        text = canvas.beginText()
+        text.setTextRenderMode(3)                            # niewidoczny: tylko do zaznaczania i wyszukiwania
+        text.setFont('DejaVuSans', size_pt)
+        text.setHorizScale(100.0 * (x1 - x0) * scale / natural)
+        text.setTextOrigin(x0 * scale, height - base * scale)
+        text.textOut(line['text'])
+        canvas.drawText(text)
+    canvas.showPage()
+
+
+def build_pdf(pages, out_pdf):
+    """pages: [(obraz, variant_id|None)] → jeden PDF; zapis atomowy, przy błędzie stary plik zostaje."""
+    try:
+        from reportlab import rl_config
+        from reportlab.pdfgen.canvas import Canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+    except ImportError:
+        raise ImportError('Brak biblioteki reportlab — uruchom: pip install -r requirements.txt')
+    import tempfile
+    loaded = [load_page(image, variant) for image, variant in pages]   # najpierw walidacja wszystkich stron
+    if 'DejaVuSans' not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT)))
+    rl_config.useA85 = 0                                   # binarne strumienie: bez ASCII85 (+25% rozmiaru)
+    out_pdf = os.path.abspath(out_pdf)
+    fd, tmp = tempfile.mkstemp(prefix='.writing-', suffix='.pdf', dir=os.path.dirname(out_pdf))
+    os.close(fd)
+    try:
+        canvas = Canvas(tmp, pageCompression=1)
+        canvas.setCreator('MikolajRej OCR')
+        for page in loaded:
+            _draw_page(canvas, page)
+        canvas.save()
+        os.chmod(tmp, 0o666 & ~UMASK)                      # mkstemp daje 0600; zwykłe uprawnienia jak dla open()
+        os.replace(tmp, out_pdf)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return out_pdf
+
+
+def main(argv=None):
+    import argparse, glob
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--folder', required=True)
+    ap.add_argument('--out', default='_RAPORT_OCR.pdf')
+    a = ap.parse_args(argv)
+    out = a.out if os.path.isabs(a.out) else os.path.join(a.folder, a.out)
+    pages = [(json.load(open(p, encoding='utf-8'))['image'], None)
+             for p in sorted(glob.glob(os.path.join(a.folder, '*__ocr.json')))]
+    path = build_pdf(pages, out)
+    print('OK:', path)
+    return path
+
+
+if __name__ == '__main__':
+    main()

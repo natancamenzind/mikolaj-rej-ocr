@@ -6,13 +6,14 @@ Guidance for coding agents working in this repository.
 
 MikołajRej: a local web application and command-line pipeline for handwritten text recognition (HTR/OCR) of historical Polish documents. It is built on Kraken 7.0.2. The model weights (`.mlmodel`) and the optional Diariusz character 6-gram LM (`lm6B.bin`) are hosted on Hugging Face (`lukaszrzepinski/MikolajRej`). They are **not** stored in this repository.
 
-The repository is a published release: code, bilingual documentation, public-domain examples, screenshots and checksums. It has no build system, no package metadata and no test suite.
+The repository is a published release: code, bilingual documentation, public-domain examples, screenshots and checksums. It has no build system and no package metadata. Unit tests (pytest) live in `tests/`.
 
 ## Layout
 
 - `app/serwer_gui.py`: local web UI. It uses only the standard library (`http.server`), binds to `127.0.0.1:${REJ_PORT:-5057}` and runs the engine scripts below as subprocesses.
 - `app/gui_*.py`: helpers for the GUI (gallery, segmentation cache/pipeline, reading order, LM options, model check, line corrections).
 - `app/segment_preview.py` → `app/ocr_batch.py` → `app/report_gen.py`: the pipeline (BLLA segmentation, line recognition with optional KenLM, HTML scan↔text report). The scripts talk to the GUI through `PROGRESS\t...` lines on stdout.
+- `app/pdf_export.py`: searchable PDF export (scan + invisible text layer, reportlab). Font in `app/fonts/` (DejaVu Sans, licence alongside).
 - `app/lm_decoder.py`, `app/ocr_history.py`, `app/ocr_comparison.py`: LM beam decoding, variant history, RAW/LM/model comparison.
 - `scripts/verify_models.py`: checks model SHA256 and size using only the standard library.
 - `scripts/recognize_page.py`: standalone recognizer that reads image + PAGE XML (`Coords` + `Baseline`), with no LM.
@@ -31,7 +32,7 @@ The repository is a published release: code, bilingual documentation, public-dom
 
 ## Checking changes
 
-There are no automated tests. Lightweight checks that need no models:
+Unit tests need no models: `pip install -r requirements-dev.txt`, then `python -m pytest`. Other lightweight checks:
 
 ```bash
 python -m py_compile app/*.py scripts/*.py

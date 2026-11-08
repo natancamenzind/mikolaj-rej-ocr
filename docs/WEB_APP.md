@@ -36,6 +36,14 @@ Przycisk lokalnego GPU jest opcjonalny. Do segmentacji wymaga wskazania przez RE
 
 Wybierz folder kopii skanów przeznaczonych do pracy. Aplikacja zapisuje obok skanów `.txt`, `__ocr.json`, `_podglad_segmentacji/`, `_historia_ocr/`, poprawki oraz raporty HTML. Plik tekstowy i bieżący raport mogą zostać zastąpione przy kolejnym odczycie; historia wariantów zachowuje wcześniejsze wyniki. Logi i rejestr raportów powstają w app/. Nie obejmuje ich publikacja źródeł.
 
+## Eksport PDF z warstwą tekstu
+
+Raport ma przycisk „Pobierz PDF z tekstem” (cały raport, jeden plik) i przycisk „PDF” przy każdej stronie. PDF wygląda jak skan, a pod obrazem leży niewidoczny tekst, który można zaznaczać, kopiować i wyszukiwać. Każdy wiersz jest umieszczony na swojej ramce z segmentacji i rozciągnięty do jej szerokości; mamy tylko geometrię wierszy, więc granice pojedynczych słów są przybliżone.
+
+Tekst pochodzi z wariantu OCR widocznego w raporcie, z zapisanymi ręcznymi poprawkami wierszy (dla wiersza liczy się najnowsza). Jest znormalizowany technicznie: Unicode NFC (OCR zapisuje „ą” jako literę i osobny ogonek) i pojedyncze spacje. Pisownia nie jest uwspółcześniana. Nazwy, daty i cyfry nadal wymagają przeglądu człowieka.
+
+Plik zapisuje się obok skanów (`_RAPORT_OCR.pdf`, `_POROWNANIE_OCR.pdf` albo `<skan>__ocr.pdf`) i jednocześnie pobiera w przeglądarce; kolejny eksport go zastępuje. Starszy wynik OCR bez zapisanej tożsamości skanu, albo skan zmieniony od OCR, kończy eksport błędem z prośbą o ponowne przetworzenie. Przyciski mają raporty utworzone po dodaniu tej funkcji. Wymaga biblioteki `reportlab` z requirements.txt; tekst osadzany jest fontem DejaVu Sans z app/fonts/. Bez interfejsu: `python app/pdf_export.py --folder SCANY`.
+
 Segmentacja wymaga ręcznej kontroli: kolejność kolumn i pominięte marginalia mogą wpływać na wynik bardziej niż sam dekoder. Dla OCR pojedynczego gotowego wiersza użyj `--no-segmentation` w ocr_batch.py. Tego przełącznika nie używaj na pełnej stronie.
 
 ## Pipeline bez interfejsu

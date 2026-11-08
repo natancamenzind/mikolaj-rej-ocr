@@ -18,6 +18,7 @@ Explore historical handwriting in a local web application. Browse scans, segment
 - **Keep the page structure** — line segmentation, columns and reading order.
 - **Compare readings** — RAW recognition, optional Diariusz LM and saved model versions.
 - **Stay close to the source** — interactive scan-to-text reports, line highlighting and manual corrections.
+- **Export a searchable PDF** — the scan with an invisible, corrected text layer you can select, copy and search; recognized text still needs human review.
 
 ## See it in action — 12 screens
 

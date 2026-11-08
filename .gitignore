@@ -15,3 +15,7 @@ _historia_ocr/
 _podglad_segmentacji/
 *.log
 .env
+_RAPORT_OCR.pdf
+_POROWNANIE_OCR.pdf
+*__ocr.pdf
+.pytest_cache/

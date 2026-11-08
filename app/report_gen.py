@@ -57,6 +57,7 @@ def _page_block(d):
     <span class="name">{_esc(name)}</span>
     {badge}<span class="pill">{len(d.get('lines',[]))} linii</span>
     <span class="spacer"></span>
+    <span class="pdf-status" role="status"></span><button class="zbtn pdf-page" title="PDF tej strony ze skanem i niewidocznym tekstem">PDF</button>
     <button class="zbtn" data-act="zin">+</button><button class="zbtn" data-act="zout">−</button>
     <button class="zbtn" data-act="zreset">reset</button>
   </div>
@@ -119,6 +120,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .tl:hover,.tl.hl{background:var(--prib)}
 .lnum{display:inline-block;min-width:22px;color:var(--mut);font-size:10.5px;margin-right:5px;font-variant-numeric:tabular-nums}
 .hint{font-size:12px;color:var(--mut);margin:0 0 14px}
+.zbtn.pdf-page{width:auto;padding:0 8px;font-size:11px;font-weight:600}
+.pdf-all{border:0;border-radius:9px;background:var(--pri);color:#fff;padding:9px 14px;font-weight:600;cursor:pointer}
+.pdf-all:disabled,.pdf-page:disabled{opacity:.5;cursor:default}.pdf-status{font-size:12px;color:var(--sec);max-width:420px;overflow-wrap:anywhere}
 """
 
 JS = """
@@ -189,6 +193,27 @@ document.querySelectorAll('.zone,.tl').forEach(e=>{
     const tl=e.closest('.report').querySelector('.tl[data-k="'+e.dataset.k+'"]'); if(tl) tl.scrollIntoView({block:'center',behavior:'smooth'});
   });
 });
+// eksport PDF: skan + niewidoczny tekst (wariant z raportu + zapisane poprawki)
+(function(){
+ const buttons=document.querySelectorAll('.pdf-all,.pdf-page'), head=document.querySelector('.apphead .pdf-status');
+ if(!buttons.length)return;
+ const pageOf=rep=>{const s=rep&&rep.querySelector('.correction-source');if(!s)return null;const d=JSON.parse(s.textContent);return {image:d.image,variant_id:d.variant_id};};
+ if(location.protocol==='file:'){buttons.forEach(b=>b.disabled=true);head.textContent='Otwórz raport w aplikacji, aby utworzyć PDF.';return;}
+ async function exportPdf(payload,status){
+  if(!payload.pages.length){status.textContent='Brak stron do eksportu.';return;}
+  buttons.forEach(b=>b.disabled=true);status.textContent='Tworzenie PDF…';
+  try{
+   const reply=await (await fetch('/api/pdf',{method:'POST',body:JSON.stringify(payload)})).json();
+   if(reply.error)throw Error(reply.error);
+   status.textContent='Zapisano: '+reply.path;location.href=reply.pdf;
+  }catch(e){status.textContent=e.message||String(e);}finally{buttons.forEach(b=>b.disabled=false);}
+ }
+ const all=document.querySelector('.pdf-all');
+ if(all)all.onclick=()=>exportPdf({scope:'report',report:new URLSearchParams(location.search).get('path')||'',
+  pages:Array.from(document.querySelectorAll('.report')).map(pageOf).filter(Boolean)},head);
+ document.querySelectorAll('.pdf-page').forEach(b=>b.onclick=()=>{const rep=b.closest('.report'),p=pageOf(rep);
+  exportPdf({scope:'page',pages:p?[p]:[]},rep.querySelector('.pdf-status'));});
+})();
 // zoom per-raport
 document.querySelectorAll('.report').forEach(rep=>{
   const box=rep.querySelector('.imgbox'); let s=1;
@@ -219,6 +244,8 @@ def build_report(folder, out_html, model_name, ocr_json_paths=None):
   <div class="apphead"><div class="logo">MR</div>
     <div><h1>MikolajRej OCR — raport</h1>
     <div class="sub">Model: {_esc(model_name)} · {len(blocks)} stron · najedź na linię, aby podświetlić</div></div>
+    <span class="spacer"></span><span class="pdf-status" role="status"></span>
+    <button class="pdf-all" title="Jeden PDF: skany z niewidocznym, poprawionym tekstem do wyszukiwania">Pobierz PDF z tekstem</button>
   </div>
   <p class="hint">Interaktywnie: najedź na wiersz na skanie lub w tekście — podświetli się po obu stronach. Klik na skanie przewija do tekstu. +/− zmienia powiększenie.</p>
   {''.join(blocks)}

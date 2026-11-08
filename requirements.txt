@@ -6,3 +6,4 @@ torch==2.10.0
 torchvision==0.25.0
 coremltools==9.0
 Pillow==12.3.0
+reportlab==5.1.0

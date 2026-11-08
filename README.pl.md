@@ -18,6 +18,7 @@ Przeglądaj historyczne rękopisy w lokalnej aplikacji webowej. Wybierz skany, p
 - **Zachowaj układ dokumentu** — segmentacja wierszy, kolumny i kolejność czytania.
 - **Porównuj odczyty** — RAW, opcjonalny Diariusz LM i zapisane wersje modeli.
 - **Pracuj przy źródle** — raport skan ↔ tekst, podświetlanie wierszy i ręczne poprawki.
+- **Eksportuj przeszukiwalny PDF** — skan z niewidoczną, poprawioną warstwą tekstu do zaznaczania, kopiowania i wyszukiwania; odczyt nadal wymaga przeglądu człowieka.
 
 ## Zobacz działanie — 12 ekranów
 

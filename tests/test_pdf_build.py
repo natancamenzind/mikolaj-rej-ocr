@@ -99,3 +99,40 @@ def test_output_has_normal_permissions(make_scan, tmp_path):
     out = pdf_export.build_pdf([(make_scan(), None)], str(tmp_path / 'out.pdf'))
     umask = os.umask(0); os.umask(umask)
     assert os.stat(out).st_mode & 0o777 == 0o666 & ~umask
+
+
+def test_chars_missing_from_font_survive_extraction(make_scan, tmp_path):
+    # ꝛ (r rotunda), ꝰ i łączniki z kodeka E26 nie mają glifu w DejaVu Sans; tekst jest niewidoczny,
+    # więc kształt glifu nie ma znaczenia — liczy się poprawny Unicode po skopiowaniu.
+    text = 'pꝛawo ꝰ koniec'
+    image = make_scan(lines=[{'i': 0, 'text': text, 'bbox': [50, 100, 550, 160], 'baseline': [[50, 150], [550, 150]]}])
+    out = pdf_export.build_pdf([(image, None)], str(tmp_path / 'out.pdf'))
+    extracted = PdfReader(out).pages[0].extract_text()
+    assert '\x00' not in extracted
+    assert text in extracted
+
+
+def test_concurrent_exports_are_serialized(make_scan, tmp_path, monkeypatch):
+    # Serwer jest wielowątkowy: rejestracja fontu, rl_config i pamięć na obrazy nie mogą się nakładać.
+    import threading, time
+    draw, active, peak = pdf_export._draw_page, [0], [0]
+    def slow(canvas, page):
+        active[0] += 1; peak[0] = max(peak[0], active[0]); time.sleep(0.05)
+        try: draw(canvas, page)
+        finally: active[0] -= 1
+    monkeypatch.setattr(pdf_export, '_draw_page', slow)
+    images = [make_scan('0001.jpg'), make_scan('0002.jpg')]
+    threads = [threading.Thread(target=pdf_export.build_pdf, args=([(i, None)], str(tmp_path / f'{n}.pdf')))
+               for n, i in enumerate(images)]
+    [t.start() for t in threads]; [t.join() for t in threads]
+    assert peak[0] == 1
+    assert len(list(tmp_path.glob('?.pdf'))) == 2
+
+
+def test_locked_target_gives_clear_message(make_scan, tmp_path, monkeypatch):
+    # Windows: os.replace na PDF otwartym w czytniku → PermissionError [WinError 32].
+    def locked(src, dst): raise PermissionError(32, 'The process cannot access the file')
+    monkeypatch.setattr(pdf_export.os, 'replace', locked)
+    with pytest.raises(ValueError, match='Zamknij plik PDF'):
+        pdf_export.build_pdf([(make_scan(), None)], str(tmp_path / 'out.pdf'))
+    assert list(tmp_path.glob('*.pdf')) == []

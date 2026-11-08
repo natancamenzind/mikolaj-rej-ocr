@@ -15,7 +15,7 @@ Użycie (z GUI):
 Samodzielnie:
   python pdf_export.py --folder FOLDER --out _RAPORT_OCR.pdf
 """
-import json, os, re, unicodedata
+import json, os, re, threading, unicodedata
 from pathlib import Path
 from ocr_history import sha256, variants_for
 from gui_line_corrections import saved_corrections
@@ -58,6 +58,7 @@ def load_page(image, variant_id=None):
 
 FONT = Path(__file__).resolve().parent / 'fonts' / 'DejaVuSans.ttf'
 UMASK = os.umask(0); os.umask(UMASK)                       # raz przy imporcie: umask jest globalny dla wątków
+LOCK = threading.Lock()                                    # jeden eksport naraz: font i rl_config są globalne, obrazy w RAM
 
 
 def _dpi(source):
@@ -105,8 +106,24 @@ def _draw_page(canvas, page):
     canvas.showPage()
 
 
+def _cover_missing(face, pages):
+    """Znaki spoza fontu (ꝛ, ꝰ, łączniki, PUA z kodeka) podpinamy pod glif „n” — tekst jest niewidoczny,
+    a ToUnicode zachowa oryginalny znak. Bez tego reportlab daje kod 0 i kopiowanie zwraca U+0000."""
+    glyph, width = face.charToGlyph[ord('n')], face.charWidths[ord('n')]
+    for page in pages:
+        for line in page['pdf_lines']:
+            for code in map(ord, line['text']):
+                if code not in face.charToGlyph:
+                    face.charToGlyph[code] = glyph; face.charWidths[code] = width
+
+
 def build_pdf(pages, out_pdf):
     """pages: [(obraz, variant_id|None)] → jeden PDF; zapis atomowy, przy błędzie stary plik zostaje."""
+    with LOCK:
+        return _build_pdf(pages, out_pdf)
+
+
+def _build_pdf(pages, out_pdf):
     try:
         from reportlab import rl_config
         from reportlab.pdfgen.canvas import Canvas
@@ -118,6 +135,7 @@ def build_pdf(pages, out_pdf):
     loaded = [load_page(image, variant) for image, variant in pages]   # najpierw walidacja wszystkich stron
     if 'DejaVuSans' not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT)))
+    _cover_missing(pdfmetrics.getFont('DejaVuSans').face, loaded)
     rl_config.useA85 = 0                                   # binarne strumienie: bez ASCII85 (+25% rozmiaru)
     out_pdf = os.path.abspath(out_pdf)
     fd, tmp = tempfile.mkstemp(prefix='.writing-', suffix='.pdf', dir=os.path.dirname(out_pdf))
@@ -129,7 +147,10 @@ def build_pdf(pages, out_pdf):
             _draw_page(canvas, page)
         canvas.save()
         os.chmod(tmp, 0o666 & ~UMASK)                      # mkstemp daje 0600; zwykłe uprawnienia jak dla open()
-        os.replace(tmp, out_pdf)
+        try:
+            os.replace(tmp, out_pdf)
+        except PermissionError:                            # Windows: plik otwarty w czytniku PDF jest zablokowany
+            raise ValueError(f'Nie można zastąpić {os.path.basename(out_pdf)}. Zamknij plik PDF w przeglądarce PDF i spróbuj ponownie.')
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)

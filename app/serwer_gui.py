@@ -34,6 +34,8 @@ RECOMMENDED = [
 ]
 LM_CANDIDATES = [os.path.join(MODEL_DIR, 'lm6B.bin')]
 EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
+PDF_REPORTS = ('_RAPORT_OCR.html', '_POROWNANIE_OCR.html')
+PDF_NAMES = tuple(os.path.splitext(name)[0] + '.pdf' for name in PDF_REPORTS)
 
 def find_lm():
     for p in LM_CANDIDATES:
@@ -558,6 +560,16 @@ class H(BaseHTTPRequestHandler):
             j = STATE["jobs"].get(q.get("id",[""])[0], {"lines":[],"done":True})
             rep = j.get("report")
             return self._send(200,"application/json",json.dumps({"lines":j["lines"],"done":j["done"],"report":rep,"error":j.get("error"),"exit_code":j.get("exit_code"),"log_path":j.get("log_path")}))
+        if u.path == '/pdf':
+            # Tylko pliki z eksportu PDF — endpoint nie może czytać dowolnych plików z dysku.
+            path = q.get('path', [''])[0]; name = os.path.basename(path)
+            if not (name.endswith('__ocr.pdf') or name in PDF_NAMES) or not os.path.isfile(path):
+                return self._send(404, 'text/plain', 'brak PDF')
+            body = open(path, 'rb').read()
+            self.send_response(200); self.send_header('Content-Type', 'application/pdf')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Content-Disposition', "attachment; filename*=UTF-8''" + urllib.parse.quote(name))
+            self.end_headers(); self.wfile.write(body); return
         if u.path == "/report":
             path = q.get("path",[""])[0]
             if os.path.isfile(path):
@@ -600,6 +612,22 @@ class H(BaseHTTPRequestHandler):
                 result=save_correction(data)
                 return self._send(200,'application/json',json.dumps(result,ensure_ascii=False))
             except (OSError,ValueError,KeyError,TypeError) as error:
+                return self._send(400,'application/json',json.dumps({'error':str(error)},ensure_ascii=False))
+        if urllib.parse.urlparse(self.path).path == '/api/pdf':
+            try:
+                pages=[(p['image'],p.get('variant_id')) for p in data.get('pages') or []]
+                if not pages: raise ValueError('Brak stron do eksportu.')
+                if data.get('scope')=='report':
+                    report=data.get('report') or ''
+                    if os.path.basename(report) not in PDF_REPORTS: raise ValueError('Nieobsługiwany raport.')
+                    out=os.path.splitext(report)[0]+'.pdf'
+                elif data.get('scope')=='page' and len(pages)==1:
+                    out=os.path.splitext(pages[0][0])[0]+'__ocr.pdf'
+                else: raise ValueError('Niepoprawny zakres eksportu PDF.')
+                import pdf_export
+                out=pdf_export.build_pdf(pages,out)
+                return self._send(200,'application/json',json.dumps({'pdf':'/pdf?path='+urllib.parse.quote(out),'path':out},ensure_ascii=False))
+            except (OSError,ValueError,KeyError,TypeError,ImportError) as error:
                 return self._send(400,'application/json',json.dumps({'error':str(error)},ensure_ascii=False))
         folder=data.get("folder","")
         layout=data.get("layout","auto")
